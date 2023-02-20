@@ -31,6 +31,7 @@ class Kyselyketju extends PluginBase
 
     public function beforeToolsMenuRender()
     {
+        //luodaan "Vie kyslyketjut" toiminto menussa
         $event = $this->getEvent();
         $surveyId = $event->get('surveyId');
 
@@ -59,6 +60,7 @@ class Kyselyketju extends PluginBase
 
     public function actionIndex($surveyId)
     {
+        //kyelyketjujen vienti
         $oSurvey = Survey::model()->findByPk($surveyId);
         if (!$oSurvey) {
             throw new CHttpException(404, gT("This survey does not seem to exist."));
@@ -119,11 +121,6 @@ class Kyselyketju extends PluginBase
                 $link = $this->get("{$label}", "Survey", $surveyId, null);
                 $settingslinks[$label] = str_contains($link, '?') ? substr($link, 0, -8) : $link;
             }
-        }
-
-
-        foreach ($settingslinks as $key => $value) {
-            $settingslinks[$key] = preg_replace('/.*\/(\d{6})$/', '$1', $value);
         }
 
 
@@ -222,15 +219,6 @@ class Kyselyketju extends PluginBase
         exit(0);
     }
 
-
-    private function _translate($string, $sEscapeMode = 'unescaped', $sLanguage = null)
-    {
-        if (is_callable(array($this, 'gT'))) {
-            return $this->gT($string, $sEscapeMode, $sLanguage);
-        }
-        return gT($string, $sEscapeMode, $sLanguage);
-    }
-
     public function beforeSurveySettings()
     {
         $oEvent     = $this->event;
@@ -246,6 +234,10 @@ class Kyselyketju extends PluginBase
             if ($question->type == 'M') {
                 $aQuestions[] = array('title' => $question->title, 'qid' => $question->qid);
             }
+        }
+
+        if (!$aQuestions) {
+            $sWarningQuestions = '<br/><span style="color: red;">Monivalintakysymyksiä ei löytynyt!</span>';
         }
 
         $hakemusKyselyt = PluginSetting::model()->findAll(array('condition' => "`key`='bUse' AND `value`='\"1\"'"));
@@ -284,7 +276,7 @@ class Kyselyketju extends PluginBase
                 'label' => "Kysymys, josta otetaan testit",
                 'options' => array_column($aQuestions, 'title'),
                 'current' => $this->get('choiceQuestion', 'Survey', $sSurveyId, null),
-                'help' => "Valitse vain 'Multiple choice' kysymystyypit",
+                'help' => "Vain 'Monivalinta' kysymystyypit" . $sWarningQuestions,
             );
             // $aSettings['tokensOption'] = array(
             //     'type' => 'select',
@@ -300,9 +292,6 @@ class Kyselyketju extends PluginBase
 
             $chosen_question = $this->get('choiceQuestion', 'Survey', $sSurveyId, null);
             $chosen_question_id = $aQuestions[$chosen_question]['qid'];
-
-            //get an array of subquestions in a M question
-
 
             if (intval(App()->getConfig('versionnumber')) < 4) {
                 $oaSubquestions = Question::model()->findAllByAttributes(array('sid' => $sSurveyId, 'parent_qid' => $chosen_question_id, 'language' => $baseLang));
@@ -372,8 +361,6 @@ class Kyselyketju extends PluginBase
         }
         return false;
     }
-
-
 
     private function nextSurvey(array $surveyArray, $name, $surname, $lang, $token, $hakemuskys)
     {
@@ -484,13 +471,20 @@ class Kyselyketju extends PluginBase
                     //EXPORT EXCEL
                     $contentToAdd = '';
 
-
                     ini_set('display_errors', 0);
                     ini_set('log_errors', 1);
                     error_reporting(E_ALL & ~E_NOTICE);
 
                     $file_name = "testing_responses_" . $name . "_" . $surname . ".xlsx";
-                    $file_path = Yii::getPathOfAlias('kyselyketju') . "\\exports\\" . $file_name;
+                    $file_path = Yii::getPathOfAlias('kyselyketju') . "\\exports\\";
+
+                    if (!file_exists($file_path)) {
+                        if (!mkdir($file_path, 0777, true)) {
+                            throw new Exception("Failed to create exports folder.");
+                        }
+                    }
+
+                    $file_path_final = $file_path . $file_name;
 
                     $writer = new XLSXWriter();
                     $writer->setAuthor('LS');
@@ -567,10 +561,9 @@ class Kyselyketju extends PluginBase
                             $header,
                             array('font-style' => 'bold', 'fill' => '#E1E1E1')
                         );
-                        // Add the matching response to the excel sheet
                         $writer->writeSheetRow('Sheet1', array_values($newApplicationResponseForEach));
                     }
-                    $writer->writeToFile($file_path);
+                    $writer->writeToFile($file_path_final);
 
                     $testingUrl = Yii::app()->baseUrl;
                     $base_url = "http://" . $_SERVER['HTTP_HOST'];
@@ -629,7 +622,7 @@ class Kyselyketju extends PluginBase
             $chosen_question_id = $aQuestions[$chosen_question]['qid'];
             $chosen_question_title = $aQuestions[$chosen_question]['title'];
 
-            $oaSurvey = Survey::model()->findByPk($sSurveyId); //checking wha
+            $oaSurvey = Survey::model()->findByPk($sSurveyId);
             $baseLang = $oaSurvey->language;
 
             if (intval(App()->getConfig('versionnumber')) < 4) {
@@ -639,7 +632,6 @@ class Kyselyketju extends PluginBase
             }
 
             $aAnswerOptions = array();
-
 
             if (intval(App()->getConfig('versionnumber')) < 4) {
                 foreach ($oaSubquestions as $subquestion) {
@@ -680,24 +672,17 @@ class Kyselyketju extends PluginBase
 
             $settingslinks = [];
 
-            // Get current PHP version
-            $php_version = phpversion();
-
-            // Check if PHP version is less than 8
-            if (version_compare($php_version, '8.0.0') < 0) {
-                // Use the `strpos` function instead of `str_contains`
+            if (version_compare(phpversion(), '8.0.0') < 0) {
                 foreach ($aAnswerOptions as $key => $label) {
                     $link = $this->get("{$label}", "Survey", $sSurveyId, null);
                     $settingslinks[$label] = strpos($link, '?') !== false ? substr($link, 0, -8) : $link;
                 }
             } else {
-                // Use the `str_contains` function
                 foreach ($aAnswerOptions as $key => $label) {
                     $link = $this->get("{$label}", "Survey", $sSurveyId, null);
                     $settingslinks[$label] = str_contains($link, '?') ? substr($link, 0, -8) : $link;
                 }
             }
-
 
             /* [ESIMERKKI] $settingslinks TULOSTAA:
             Array
