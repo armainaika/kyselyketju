@@ -170,7 +170,7 @@ class Kyselyketju extends PluginBase
             $writer->writeSheetRow(
                 'Sheet1',
                 $header,
-                array('font-style' => 'bold', 'fill' => '#6598e6')
+                array('font-style' => 'bold', 'fill' => '#70cc68')
             );
             $writer->writeSheetRow('Sheet1', array_values($newApplicationResponse));
 
@@ -195,10 +195,13 @@ class Kyselyketju extends PluginBase
                     }
                     $header = array_keys($newPrettyResponseEach);
                     $survey_title = SurveyLanguageSetting::model()->findByAttributes(array('surveyls_survey_id' => $surveyIds, 'surveyls_language' => $responseLang))->surveyls_title;
+                    if (!$survey_title) {
+                        $survey_title = SurveyLanguageSetting::model()->findByAttributes(array('surveyls_survey_id' => $surveyIds, 'surveyls_language' => $baseLang))->surveyls_title;
+                    }
                     $writer->writeSheetRow(
                         'Sheet1',
                         [$survey_title],
-                        array('font-style' => 'bold', 'fill' => '#6bb2db')
+                        array('font-style' => 'bold', 'fill' => '#70cc68')
                     );
                     $writer->writeSheetRow(
                         'Sheet1',
@@ -505,7 +508,7 @@ class Kyselyketju extends PluginBase
                     if (!empty($newApplicationResponse)) {
                         $header = array_keys($newApplicationResponse);
                         $writer->writeSheetRow('Sheet1', $header, array(
-                            'font-style' => 'bold', 'fill' => '#408fbd'
+                            'font-style' => 'bold', 'fill' => '#70cc68'
                         ));
                         $writer->writeSheetRow('Sheet1', array_values($newApplicationResponse));
                     } else {
@@ -545,7 +548,7 @@ class Kyselyketju extends PluginBase
                         $writer->writeSheetRow(
                             'Sheet1',
                             [$survey_title],
-                            array('font-style' => 'bold', 'fill' => '#6bb2db')
+                            array('font-style' => 'bold', 'fill' => '#70cc68')
                         );
 
                         $header = array_keys($newApplicationResponseForEach);
