@@ -95,7 +95,6 @@ class Kyselyketju extends PluginBase
 
         $aAnswerOptions = array();
 
-
         if (intval(App()->getConfig('versionnumber')) < 4) {
             foreach ($oaSubquestions as $subquestion) {
                 if ($subquestion->attributes['language'] == $baseLang) {
@@ -110,8 +109,7 @@ class Kyselyketju extends PluginBase
 
         $settingslinks = [];
 
-        $php_version = phpversion();
-        if (version_compare($php_version, '8.0.0') < 0) {
+        if (version_compare(phpversion(), '8.0.0') < 0) {
             foreach ($aAnswerOptions as $key => $label) {
                 $link = $this->get("{$label}", "Survey", $surveyId, null);
                 $settingslinks[$label] = strpos($link, '?') !== false ? substr($link, 0, -8) : $link;
@@ -122,7 +120,6 @@ class Kyselyketju extends PluginBase
                 $settingslinks[$label] = str_contains($link, '?') ? substr($link, 0, -8) : $link;
             }
         }
-
 
         ini_set('display_errors', 0);
         ini_set('log_errors', 1);
@@ -137,8 +134,6 @@ class Kyselyketju extends PluginBase
 
         $writer = new XLSXWriter();
         $writer->setAuthor('LS');
-        ////////////////////////
-        ////////////////////////////
 
         $testResponses = SurveyDynamic::model($surveyId)->findAll();
 
@@ -210,7 +205,6 @@ class Kyselyketju extends PluginBase
                         $header,
                         array('font-style' => 'bold', 'fill' => '#E1E1E1')
                     );
-                    // Add the matching response to the excel sheet
                     $writer->writeSheetRow('Sheet1', array_values($newPrettyResponseEach));
                 }
             }
