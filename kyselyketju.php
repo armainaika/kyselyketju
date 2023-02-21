@@ -257,7 +257,7 @@ class Kyselyketju extends PluginBase
                     1 => 'Kyllä'
                 ),
                 'default' => 0,
-                'help' => 'Jos tämä on Hakemus kysely, valitse "Kyllä". Muista merkitä nimitietojen kysymykset niin, että kysymysten nimessä ilmestyy sana "name", näin plugin saa nimitiedot parhaiten' . $sWarning,
+                'help' => 'Jos tämä on Hakemus kysely, valitse "Kyllä". Muista merkitä nimitietojen kysymykset niin, että kysymysten koodeissa ilmestyy sana "name", näin plugin saa nimitiedot parhaiten' . $sWarning,
                 'current' => $this->get('bUse', 'Survey', $oEvent->get('survey')),
             ),
         );
