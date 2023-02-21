@@ -137,22 +137,22 @@ class Kyselyketju extends PluginBase
 
         $testResponses = SurveyDynamic::model($surveyId)->findAll();
 
-        //getting surveys' id's out of their links
+        //saadaan kyselyiden idt niiden linkeistä
         $finalArrayTest = array();
         foreach ($settingslinks as $key => $value) {
             $finalArrayTest[$key] = preg_replace('/.*\/(\d{6})$/', '$1', $value);
         }
 
-        $prettyResponsesTest = array();
+        // $prettyResponsesTest = array();
         foreach ($testResponses as $response) {
             $sResponseId = $response->attributes['id'];
             $responseToken = $response->attributes['token'];
             $responseLang = $response->attributes['startlanguage'];
 
-            //GETTING TEXTS INSTEAD OF CODES
-            $prettyApplicationResponse = getFullResponseTable($surveyId, $sResponseId, $responseLang); // getting each response
+            //saadaan kysymykset ja vastaukset teksteinä koodien sijaan
+            $prettyApplicationResponse = getFullResponseTable($surveyId, $sResponseId, $responseLang); // jokainen response
 
-            //removing HTML tags
+            //poistetaan HTML tagit
             foreach ($prettyApplicationResponse as &$subArray) {
                 $subArray = array_map('strip_tags', $subArray);
             }
@@ -177,11 +177,11 @@ class Kyselyketju extends PluginBase
             foreach ($finalArrayTest as $surveyIds) {
                 $matchingResponse = SurveyDynamic::model($surveyIds)->findByAttributes(array('token' => $responseToken));
                 if ($matchingResponse) {
-                    //GETTING TEXTS INSTEAD OF CODES
+                    //saadaan kysymykset ja vastaukset teksteinä koodien sijaan
                     $eachResponseId = $matchingResponse->attributes['id'];
                     $eachResponseLang = $matchingResponse->attributes['startlanguage'];
                     $prettyResponseEach = getFullResponseTable($surveyIds, $eachResponseId, $eachResponseLang);
-                    //removing HTML tags
+                    //poistetaan HTML tagit
                     foreach ($prettyResponseEach as &$subArray) {
                         $subArray = array_map('strip_tags', $subArray);
                     }
@@ -190,7 +190,7 @@ class Kyselyketju extends PluginBase
                         if ($value[1]) {
                             $newPrettyResponseEach[$value[1] . ' ' . $value[0]] = $value[2];
                         } else {
-                            $newPrettyResponseEach[$value[0]] = $value[2]; // ready pretty each response!!!!!!!!
+                            $newPrettyResponseEach[$value[0]] = $value[2]; // valmis editoitu jokainen vastaus
                         }
                     }
                     $header = array_keys($newPrettyResponseEach);
@@ -298,7 +298,6 @@ class Kyselyketju extends PluginBase
 
             $aAnswerOptions = array();
 
-
             if (intval(App()->getConfig('versionnumber')) < 4) {
                 foreach ($oaSubquestions as $subquestion) {
                     if ($subquestion->attributes['language'] == $baseLang) {
@@ -405,8 +404,6 @@ class Kyselyketju extends PluginBase
             $b = Template::getLastInstance();
             Yii::app()->twigRenderer->renderHtmlPage($sNextSurvey, $b);
         } else {
-            $cursurveyinarray = $this->checkSurveyLink($surveyArray);
-
             $search = 'http://' . $_SERVER['HTTP_HOST'] . Yii::app()->request->getRequestUri();
 
             $sNextSurvey = current($surveyArray);
@@ -435,7 +432,7 @@ class Kyselyketju extends PluginBase
 
                     $sNextSurvey = $surveyArray[$nextKey]['link'] . "?lang=" . $lang . "&newtest=Y"; // valmis linkki seuraavaan kyselyyn (vielä ilman tokenia)
 
-                    //perustiedot
+                    //perustiedot osallistujalle
                     $aParticipantData = array(
                         'firstname' => "{$name}",
                         'lastname' => "{$surname}",
@@ -486,12 +483,12 @@ class Kyselyketju extends PluginBase
                     $writer = new XLSXWriter();
                     $writer->setAuthor('LS');
 
-                    //getting the response id
+                    //saadaan kysymykset ja vastaukset teksteinä koodien sijaan
                     $testResponses = SurveyDynamic::model($hakemuskys)->findByAttributes(array('token' => $token));
 
                     $printAnswers = getFullResponseTable($hakemuskys, $testResponses['id'], $lang);
 
-                    //removing HTML tags
+                    //poistetaan HTML tagit
                     foreach ($printAnswers as &$subArray) {
                         $subArray = array_map('strip_tags', $subArray);
                     }
@@ -501,7 +498,7 @@ class Kyselyketju extends PluginBase
                         if ($value[1]) {
                             $newApplicationResponse[$value[1] . ' ' . $value[0]] = $value[2];
                         } else {
-                            $newApplicationResponse[$value[0]] = $value[2]; // ready pretty each response!!!!!!!!
+                            $newApplicationResponse[$value[0]] = $value[2]; // valmis editoitu jokainen vastaus
                         }
                     }
 
@@ -528,7 +525,7 @@ class Kyselyketju extends PluginBase
                         $printAnswersForEach = getFullResponseTable($testsurvey_id, $matchingResponse->attributes['id'], $lang);
 
                         //DEBUG $contentToAdd .= '<pre>$printAnswersForEach <h3>(before the foreach loop)</h3>:<br/>' . print_r($printAnswersForEach, true) . '</pre>';
-                        //removing HTML tags
+                        //poistetaan HTML tagit
                         foreach ($printAnswersForEach as &$subArray) {
                             $subArray = array_map('strip_tags', $subArray);
                         }
@@ -539,7 +536,7 @@ class Kyselyketju extends PluginBase
                             if ($value[1]) {
                                 $newApplicationResponseForEach[$value[1] . ' ' . $value[0]] = $value[2];
                             } else {
-                                $newApplicationResponseForEach[$value[0]] = $value[2]; // ready pretty each response!!!!!!!!
+                                $newApplicationResponseForEach[$value[0]] = $value[2]; // valmis jokainen vastaus
                             }
                         }
 
