@@ -263,6 +263,10 @@ class Kyselyketju extends PluginBase
         );
 
         if ($this->get('bUse', 'Survey', $oEvent->get('survey')) == 1) {
+            $aSettings['infoUse'] = array(
+                'type' => 'info',
+                'content' => '<h3><b>Miten parhaiten saa kyselyketjun toimiman?</b></h3> <br/>1) Varmista, että nimitiedot ovat sellaisessa "Useita lyhyitä tekstikenttiä"- kysymysmuodossa, ja alikysymysten koodit ovat vaikkapa "first<b>name</b>" ja "last<b>name</b>", koska plugin hakee nimietiedot sen "name" osan perusteella<br/>2) Varmista, että alhaalla liitetyissä linkeissä ei ole liiallisia välilyöntejä alussa. Linkissä voi olla mutta voi puuttuakin se "?lang=xx" osa, tärkeintä on että ei ole mitään muita parameja<br/>3) Varmista, että on olemassa vain yksi Hakemuskysely. Tällä hetkellä plugin ei hyväksy enempää kuin yhden Hakemuskyselyn. Jos niitä on enemmän niin plugin ei toimi ja tulee joko virhe Hakemuskyselyn jälkeen tai täällä asetuksissa punaisena tekstinä varoitus',
+            );
             $aSettings['choiceQuestion'] = array(
                 'type' => 'select',
                 'htmlOptions' => array(
