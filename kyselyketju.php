@@ -464,7 +464,7 @@ class Kyselyketju extends PluginBase
                     }
                     $b = Template::getLastInstance();
                     Yii::app()->twigRenderer->renderHtmlPage($sNextSurvey, $b);
-                } else {
+                } /*else {
                     //EXPORT EXCEL
                     $contentToAdd = '';
 
@@ -569,11 +569,9 @@ class Kyselyketju extends PluginBase
                     $contentToAdd .= '<a href="' . $file_url . '" download>Talenna vastauksesi</a>';
 
                     $oEvent->getContent($this)->addContent($contentToAdd);
-                }
+                }*/
             } else {
-                $contentToAdd = '<pre>Error in exporting the responses</pre>';
-                $oEvent->getContent($this)->addContent($contentToAdd);
-                return;
+                throw new CHttpException(404, gT("Error in processing the survey links"));
             }
         }
     }
