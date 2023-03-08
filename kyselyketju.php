@@ -782,6 +782,8 @@ class Kyselyketju extends PluginBase
                 $this->nextSurvey($finalArray, $name, $surname, $lang, $token, $sSurveyId);
             }
 
+            /*$contentToAdd = '<pre>' . print_r($response, true) . '</pre>';*/
+
             $oEvent->getContent($this)->addContent($contentToAdd);
         }
     }
