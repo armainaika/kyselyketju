@@ -264,7 +264,7 @@ class Kyselyketju extends PluginBase
         if ($this->get('bUse', 'Survey', $oEvent->get('survey')) == 1) {
             $aSettings['infoUse'] = array(
                 'type' => 'info',
-                'content' => '<h3><b>Miten parhaiten saa kyselyketjun toimimaan?</b></h3> <br/>1) Varmista, että nimitiedot ovat sellaisessa "Useita lyhyitä tekstikenttiä"- kysymysmuodossa, ja alikysymysten koodit ovat vaikkapa "first<b>name</b>" ja "last<b>name</b>", koska plugin hakee nimietiedot sen "name" osan perusteella<br/>2) Varmista, että alhaalla liitetyissä linkeissä ei ole liiallisia välilyöntejä alussa. Linkissä voi olla mutta voi puuttuakin se "?lang=xx" osa, tärkeintä on että ei ole mitään muita parameja<br/>3) Varmista, että on olemassa vain yksi Hakemuskysely. Tällä hetkellä plugin ei hyväksy enempää kuin yhden Hakemuskyselyn. Jos niitä on enemmän niin plugin ei toimi ja tulee joko virhe Hakemuskyselyn jälkeen tai täällä asetuksissa punaisena tekstinä varoitus',
+                'content' => '<h3><b>Miten saa kyselyketjun toimimaan parhaiten?</b></h3> <br/>1) Varmista, että nimitiedot ovat "Useita lyhyitä tekstikenttiä"- kysymysmuodossa, ja alikysymysten koodit ovat vaikkapa "first<b>name</b>" ja "last<b>name</b>", koska plugin hakee nimietiedot sen "name" osan perusteella<br/>2) Varmista, että alhaalla liitetyissä linkeissä ei ole liiallisia välilyöntejä alussa. Linkissä voi olla tai voi puuttuakin se "?lang=xx" osa, tärkeintä on että ei ole mitään muita parameja<br/>3) Varmista, että on olemassa vain yksi Hakemuskysely. Tällä hetkellä plugin ei hyväksy enempää kuin yhden Hakemuskyselyn. Jos niitä on enemmän niin plugin ei toimi ja tulee joko virhe Hakemuskyselyn jälkeen tai täällä asetuksissa punaisena tekstinä varoitus<br/>4) Jos kyselyketjun aikana tulevassa kyselyssä ei ole samaa aloituskieltä, kysely käynnistyy sen peruskielellä',
             );
             $aSettings['choiceQuestion'] = array(
                 'type' => 'select',
@@ -371,6 +371,10 @@ class Kyselyketju extends PluginBase
             $nextSurveyID = substr($surveyArray[array_keys($surveyArray)[0]]['link'], -6); // seuraavan kyselyn id
 
             $oSurvey = Survey::model()->findByPk($nextSurveyID);
+            if (!$oSurvey) {
+                throw new CHttpException(404, gT("This survey does not exist"));
+            }
+
             $nextSurveyLanguages = $oSurvey->getAllLanguages();
 
             if (!in_array($lang, $nextSurveyLanguages)) {
@@ -427,6 +431,11 @@ class Kyselyketju extends PluginBase
                     $nextSurveyID = substr($surveyArray[$nextKey]['link'], -6); // seuraavan kyselyn id
 
                     $oSurvey = Survey::model()->findByPk($nextSurveyID);
+
+                    if (!$oSurvey) {
+                        throw new CHttpException(404, gT("This survey does not exist"));
+                    }
+
                     $nextSurveyLanguages = $oSurvey->getAllLanguages();
 
                     if (!in_array($lang, $nextSurveyLanguages)) {
