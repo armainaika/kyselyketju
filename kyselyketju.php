@@ -47,7 +47,7 @@ class Kyselyketju extends PluginBase
 
             $menuItem = new MenuItem(
                 array(
-                    'label' => gT("Vie kyslyketjut"),
+                    'label' => gT("Vie kyselyketjut"),
                     'iconClass' => 'fa fa-table',
                     'href' => $href
                 )
@@ -256,7 +256,7 @@ class Kyselyketju extends PluginBase
                     1 => gT("Yes")
                 ),
                 'default' => 0,
-                'help' => 'Jos tämä on Hakemus kysely, valitse "Kyllä". Muista merkitä nimitietojen kysymykset niin, että kysymysten koodeissa ilmestyy sana "name", näin plugin saa nimitiedot parhaiten' . $sWarning,
+                'help' => 'Jos tämä on Hakemus kysely, valitse "Kyllä"' . $sWarning,
                 'current' => $this->get('bUse', 'Survey', $oEvent->get('survey')),
             ),
         );
@@ -264,7 +264,7 @@ class Kyselyketju extends PluginBase
         if ($this->get('bUse', 'Survey', $oEvent->get('survey')) == 1) {
             $aSettings['infoUse'] = array(
                 'type' => 'info',
-                'content' => '<h3><b>Miten saa kyselyketjun toimimaan parhaiten?</b></h3> <br/>1) Varmista, että nimitiedot ovat "Useita lyhyitä tekstikenttiä"- kysymysmuodossa, ja alikysymysten koodit ovat vaikkapa "first<b>name</b>" ja "last<b>name</b>", koska plugin hakee nimietiedot sen "name" osan perusteella<br/>2) Varmista, että alhaalla liitetyissä linkeissä ei ole liiallisia välilyöntejä alussa. Linkissä voi olla tai voi puuttuakin se "?lang=xx" osa, tärkeintä on että ei ole mitään muita parameja<br/>3) Varmista, että on olemassa vain yksi Hakemuskysely. Tällä hetkellä plugin ei hyväksy enempää kuin yhden Hakemuskyselyn. Jos niitä on enemmän niin plugin ei toimi ja tulee joko virhe Hakemuskyselyn jälkeen tai täällä asetuksissa punaisena tekstinä varoitus<br/>4) Jos kyselyketjun aikana tulevassa kyselyssä ei ole samaa aloituskieltä, kysely käynnistyy peruskielellään',
+                'content' => '<h3><b>Miten saa kyselyketjun toimimaan parhaiten?</b></h3> <br/>1) Varmista, että alhaalla liitetyissä linkeissä ei ole liiallisia välilyöntejä alussa. Linkissä voi olla tai voi puuttuakin se "?lang=xx" osa, tärkeintä on että ei ole mitään muita parameja<br/>2) Varmista, että on olemassa vain yksi Hakemuskysely. Tällä hetkellä plugin ei hyväksy enempää kuin yhden Hakemuskyselyn. Jos niitä on enemmän niin plugin ei toimi ja tulee joko virhe Hakemuskyselyn jälkeen tai täällä asetuksissa punaisena tekstinä varoitus<br/>3) Jos kyselyketjun aikana tulevassa kyselyssä ei ole samaa aloituskieltä, kysely käynnistyy peruskielellään',
             );
             $aSettings['choiceQuestion'] = array(
                 'type' => 'select',
@@ -763,14 +763,20 @@ class Kyselyketju extends PluginBase
             )
             */
 
-            $responseNimi = array_filter($response, function ($key) {
+            //vanha tapa saada nimitiedot
+            /*$responseNimi = array_filter($response, function ($key) {
                 return strpos($key, 'name') !== false;
             }, ARRAY_FILTER_USE_KEY);
 
             $name = $responseNimi[array_keys($responseNimi)[0]];
-            $surname = $responseNimi[array_keys($responseNimi)[1]];
+            $surname = $responseNimi[array_keys($responseNimi)[1]];*/
 
             $token = $response['token'];
+
+            //nimitiedot
+            $tokenId = TokenDynamic::model($sSurveyId)->findByAttributes(array('token' => $token));
+            $name = $tokenId->attributes['firstname'];
+            $surname = $tokenId->attributes['lastname'];
 
             $contentToAdd = '';
 
@@ -782,7 +788,8 @@ class Kyselyketju extends PluginBase
                 $this->nextSurvey($finalArray, $name, $surname, $lang, $token, $sSurveyId);
             }
 
-            /*$contentToAdd = '<pre>' . print_r($response, true) . '</pre>';*/
+
+            //$contentToAdd = '<pre>' . $name . ' ' . $surname . '<br/>' . print_r($tokenId, true) . '</pre>';
 
             $oEvent->getContent($this)->addContent($contentToAdd);
         }
