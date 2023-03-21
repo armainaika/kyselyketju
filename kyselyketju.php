@@ -411,7 +411,8 @@ class Kyselyketju extends PluginBase
             $b = Template::getLastInstance();
             Yii::app()->twigRenderer->renderHtmlPage($sNextSurvey, $b);
         } else {
-            $search = 'http://' . $_SERVER['HTTP_HOST'] . Yii::app()->request->getRequestUri();
+            $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http";
+            $search = $protocol . '://' . $_SERVER['SERVER_NAME'] . Yii::app()->request->getRequestUri();
 
             $sNextSurvey = current($surveyArray);
 
@@ -788,8 +789,7 @@ class Kyselyketju extends PluginBase
                 $this->nextSurvey($finalArray, $name, $surname, $lang, $token, $sSurveyId);
             }
 
-
-            //$contentToAdd = '<pre>' . $name . ' ' . $surname . '<br/>' . print_r($tokenId, true) . '</pre>';
+            //$contentToAdd = '<pre>' . $testSearch . '</pre>';
 
             $oEvent->getContent($this)->addContent($contentToAdd);
         }
