@@ -2,13 +2,12 @@
 
 use \LimeSurvey\Menu\MenuItem;
 
-$ls_xlsxwriter_path = realpath(dirname(__FILE__) . '/../../../application/third_party/xlsx_writer/xlsxwriter.class.php');
+$ls_xlsxwriter_path = realpath(dirname(__FILE__) . '/../../application/third_party/xlsx_writer/xlsxwriter.class.php');
 if (file_exists($ls_xlsxwriter_path)) {
     require_once $ls_xlsxwriter_path;
 } else {
     include_once(__DIR__ . '/php_xlsxwriter/xlsxwriter.class.php');
 }
-
 
 class Kyselyketju extends PluginBase
 {
@@ -17,7 +16,7 @@ class Kyselyketju extends PluginBase
     static protected $name = 'Kyselyketju';
 
     public $allowedPublicMethods = [
-        'actionIndex',
+        'SCExport',
     ];
 
     public function init()
@@ -31,8 +30,8 @@ class Kyselyketju extends PluginBase
 
     public function beforeToolsMenuRender()
     {
-        $event = $this->getEvent();
-        $surveyId = $event->get('surveyId');
+        $oEvent = $this->event;
+        $surveyId = $oEvent->get('surveyId');
 
         if ($this->get('bUse', 'Survey', $surveyId) == 1) {
             $href = Yii::app()->createUrl(
@@ -40,26 +39,26 @@ class Kyselyketju extends PluginBase
                 array(
                     'sa' => 'sidebody',
                     'plugin' => 'Kyselyketju',
-                    'method' => 'actionIndex',
+                    'method' => 'SCExport',
                     'surveyId' => $surveyId,
                 )
             );
 
             $menuItem = new MenuItem(
                 array(
-                    'label' => gT("Vie kyselyketjut"),
+                    'label' => gT("Export surveychain"),
                     'iconClass' => 'fa fa-table',
                     'href' => $href
                 )
             );
 
-            $event->append('menuItems', array($menuItem));
+            $oEvent->append('menuItems', array($menuItem));
         }
     }
 
-    public function actionIndex($surveyId)
+    public function SCExport($surveyId)
     {
-        //kyelyketjujen vienti
+        //Survey chain export
         $oSurvey = Survey::model()->findByPk($surveyId);
         if (!$oSurvey) {
             throw new CHttpException(404, gT("This survey does not seem to exist."));
@@ -124,7 +123,8 @@ class Kyselyketju extends PluginBase
         ini_set('log_errors', 1);
         error_reporting(E_ALL & ~E_NOTICE);
 
-        $filename = "testing_responses.xlsx";
+        $filename = "response_data_process.xlsx";
+
         header('Content-disposition: attachment; filename="' . XLSXWriter::sanitize_filename($filename) . '"');
         header("Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
         header('Content-Transfer-Encoding: binary');
@@ -134,24 +134,28 @@ class Kyselyketju extends PluginBase
         $writer = new XLSXWriter();
         $writer->setAuthor('LS');
 
-        $testResponses = SurveyDynamic::model($surveyId)->findAll();
+        //1st sheet (application responses + linked other survey responses)
 
-        //saadaan kyselyiden idt niiden linkeistä
+        $testResponses = SurveyDynamic::model($surveyId)->findAll();
+        if (!$testResponses) {
+            throw new CHttpException(404, gT("Test responses does not exist"));
+        }
+
+        //Getting survey id's from their links
         $finalArrayTest = array();
         foreach ($settingslinks as $key => $value) {
             $finalArrayTest[$key] = preg_replace('/.*\/(\d{6})$/', '$1', $value);
         }
 
-        // $prettyResponsesTest = array();
         foreach ($testResponses as $response) {
             $sResponseId = $response->attributes['id'];
             $responseToken = $response->attributes['token'];
             $responseLang = $response->attributes['startlanguage'];
 
-            //saadaan kysymykset ja vastaukset teksteinä koodien sijaan
+            //Getting questions and responses as text instead of codes
             $prettyApplicationResponse = getFullResponseTable($surveyId, $sResponseId, $responseLang); // jokainen response
 
-            //poistetaan HTML tagit
+            //Deleting HTML tags
             foreach ($prettyApplicationResponse as &$subArray) {
                 $subArray = array_map('strip_tags', $subArray);
             }
@@ -173,14 +177,25 @@ class Kyselyketju extends PluginBase
             );
             $writer->writeSheetRow('Sheet1', array_values($newApplicationResponse));
 
-            foreach ($finalArrayTest as $surveyIds) {
+            $arrayWithNoDeletionTwo = array();
+            foreach ($finalArrayTest as $key => $surveyIds) {
+                $survey = Survey::model()->findByPk($surveyIds);
+                if (!$survey) {
+                    unset($finalArrayTest[$key]); // Remove the deleted survey from the array
+                } else {
+                    $arrayWithNoDeletionTwo[] = $surveyIds;
+                }
+            }
+
+            foreach ($arrayWithNoDeletionTwo as $surveyIds) {
+
                 $matchingResponse = SurveyDynamic::model($surveyIds)->findByAttributes(array('token' => $responseToken));
                 if ($matchingResponse) {
-                    //saadaan kysymykset ja vastaukset teksteinä koodien sijaan
+                    //Getting questions and responses as text instead of codes
                     $eachResponseId = $matchingResponse->attributes['id'];
                     $eachResponseLang = $matchingResponse->attributes['startlanguage'];
                     $prettyResponseEach = getFullResponseTable($surveyIds, $eachResponseId, $eachResponseLang);
-                    //poistetaan HTML tagit
+                    //Deleting HTML tags
                     foreach ($prettyResponseEach as &$subArray) {
                         $subArray = array_map('strip_tags', $subArray);
                     }
@@ -189,13 +204,13 @@ class Kyselyketju extends PluginBase
                         if ($value[1]) {
                             $newPrettyResponseEach[$value[1] . ' ' . $value[0]] = $value[2];
                         } else {
-                            $newPrettyResponseEach[$value[0]] = $value[2]; // valmis editoitu jokainen vastaus
+                            $newPrettyResponseEach[$value[0]] = $value[2]; //Ready edited every response
                         }
                     }
                     $header = array_keys($newPrettyResponseEach);
-                    $survey_title = SurveyLanguageSetting::model()->findByAttributes(array('surveyls_survey_id' => $surveyIds, 'surveyls_language' => $responseLang))->surveyls_title;
+                    $survey_title = SurveyLanguageSetting::model()->findByAttributes(array('surveyls_survey_id' => $surveyIds, 'surveyls_language' => $eachResponseLang))->surveyls_title;
                     if (!$survey_title) {
-                        $survey_title = SurveyLanguageSetting::model()->findByAttributes(array('surveyls_survey_id' => $surveyIds, 'surveyls_language' => $baseLang))->surveyls_title;
+                        $survey_title = SurveyLanguageSetting::model()->findByAttributes(array('surveyls_survey_id' => $surveyIds, 'surveyls_language' => $responseLang))->surveyls_title;
                     }
                     $writer->writeSheetRow(
                         'Sheet1',
@@ -211,8 +226,178 @@ class Kyselyketju extends PluginBase
                 }
             }
         }
+        ///1st sheet end
+
+        //2nd sheet - Application survey responses
+
+        $sResponseIdHeader = $testResponses[0]->attributes['id'];
+        $responseLangHeader = $testResponses[0]->attributes['startlanguage'];
+
+        $prettyApplicationResponseHeader = getFullResponseTable($surveyId, $sResponseIdHeader, $responseLangHeader);
+
+        //Deleting HTML tags
+        foreach ($prettyApplicationResponseHeader as &$subArray) {
+            $subArray = array_map('strip_tags', $subArray);
+        }
+
+        $newApplicationResponseHeader = array();
+        foreach ($prettyApplicationResponseHeader as $key => $value) {
+            if ($value[1]) {
+                $newApplicationResponseHeader[$value[1] . ' ' . $value[0]] = $value[2];
+            } else {
+                $newApplicationResponseHeader[$value[0]] = $value[2];
+            }
+        }
+
+        $header = array_keys($newApplicationResponseHeader);
+        $writer->writeSheetRow(
+            'Hakemus',
+            $header
+        );
+
+
+        //Applicaiton's responses
+        foreach ($testResponses as $response) {
+            $sResponseId = $response->attributes['id'];
+            $responseToken = $response->attributes['token'];
+            $responseLang = $response->attributes['startlanguage'];
+
+            //Getting questions and responses as text instead of codes
+            $prettyApplicationResponse = getFullResponseTable($surveyId, $sResponseId, $responseLang); //Each response
+
+            //Deleting HTML tags
+            foreach ($prettyApplicationResponse as &$subArray) {
+                $subArray = array_map('strip_tags', $subArray);
+            }
+
+            $newApplicationResponse = array();
+            foreach ($prettyApplicationResponse as $key => $value) {
+                if ($value[1]) {
+                    $newApplicationResponse[$value[1] . ' ' . $value[0]] = $value[2];
+                } else {
+                    $newApplicationResponse[$value[0]] = $value[2];
+                }
+            }
+
+            $writer->writeSheetRow('Hakemus', array_values($newApplicationResponse));
+        }
+        //2nd sheet end
+
+        //Other surveys' responses from the survey chain
+        $arrayWithNoDeletion = array();
+        foreach ($finalArrayTest as $surveyIds) {
+            $survey = Survey::model()->findByPk($surveyIds);
+            if (!$survey) {
+                continue; // Skip this iteration and move on to the next one
+            }
+            $arrayWithNoDeletion[] = $surveyIds;
+        }
+
+        foreach ($arrayWithNoDeletion as $surveyIds) {
+            $eachSurveyResponses = SurveyDynamic::model($surveyIds)->findAll();
+
+            $survey_title = SurveyLanguageSetting::model()->findByAttributes(array('surveyls_survey_id' => $surveyIds, 'surveyls_language' => $baseLang))->surveyls_title;
+            $sResponseIdHeader = $eachSurveyResponses[0]->attributes['id'];
+            $responseLangHeader = $eachSurveyResponses[0]->attributes['startlanguage'];
+
+            $prettyApplicationResponseHeader = getFullResponseTable($surveyIds, $sResponseIdHeader, $responseLangHeader);
+
+            //Deleting HTML tags
+            foreach ($prettyApplicationResponseHeader as &$subArray) {
+                $subArray = array_map('strip_tags', $subArray);
+            }
+
+            $newApplicationResponseHeader = array();
+            foreach ($prettyApplicationResponseHeader as $key => $value) {
+                if ($value[1]) {
+                    $newApplicationResponseHeader[$value[1] . ' ' . $value[0]] = $value[2];
+                } else {
+                    $newApplicationResponseHeader[$value[0]] = $value[2];
+                }
+            }
+
+            $header = array_keys($newApplicationResponseHeader);
+            $writer->writeSheetRow(
+                $survey_title,
+                $header
+            );
+            foreach ($eachSurveyResponses as $response) {
+                $sResponseId = $response->attributes['id'];
+                $responseToken = $response->attributes['token'];
+                $responseLang = $response->attributes['startlanguage'];
+
+                //Getting questions and responses as text instead of codes
+                $prettyApplicationResponse = getFullResponseTable($surveyIds, $sResponseId, $responseLang);
+
+                //Deleting HTML tags
+                foreach ($prettyApplicationResponse as &$subArray) {
+                    $subArray = array_map('strip_tags', $subArray);
+                }
+
+                $newApplicationResponse = array();
+                foreach ($prettyApplicationResponse as $key => $value) {
+                    if ($value[1]) {
+                        $newApplicationResponse[$value[1] . ' ' . $value[0]] = $value[2];
+                    } else {
+                        $newApplicationResponse[$value[0]] = $value[2];
+                    }
+                }
+
+                $writer->writeSheetRow($survey_title, array_values($newApplicationResponse));
+            }
+        }
+
         $writer->writeToStdOut();
         exit(0);
+    }
+
+    public function findParentApplication() //Finding parent application of each survey
+    {
+        $applicationSurveys = PluginSetting::model()->findAll(array('condition' => "`key`='bUse' AND `value`='\"1\"'"));
+
+        $applicationSurveysData = array();
+        foreach ($applicationSurveys as $survey) {
+            $surveyId = $survey->model_id;
+            $settings = array();
+            $pluginSettings = PluginSetting::model()->findAllByAttributes(array('model_id' => $surveyId));
+            foreach ($pluginSettings as $pluginSetting) {
+                $key = $pluginSetting->key;
+                $value = $pluginSetting->value;
+                $matches = array();
+                if (preg_match('/\d{6}/', $value, $matches)) {
+                    $settings[$key] = $matches[0];
+                } else {
+                    unset($settings[$key]);
+                }
+            }
+            $applicationSurveysData[$surveyId] = $settings;
+        }
+
+        $currentUrl = Yii::app()->request->getUrl();
+        preg_match('/\d{6}/', $currentUrl, $matches);
+        $searchSequence = $matches[0];
+
+        $found = false;
+        $result = '';
+        foreach ($applicationSurveysData as $surveyId => $settings) {
+            foreach ($settings as $key => $value) {
+                if (preg_match('/\d{6}/', $value, $matches) && $matches[0] === $searchSequence) {
+                    $result = $surveyId;
+                    $found = true;
+                    break 2;
+                } else if (preg_match('/\d{6}/', $surveyId, $matches) && $matches[0] === $searchSequence) {
+                    $result = $surveyId . ' (Parent Application Survey)';
+                    $found = true;
+                    break 2;
+                }
+            }
+        }
+
+        if (!$found) {
+            $result = null;
+        }
+
+        return $result;
     }
 
     public function beforeSurveySettings()
@@ -236,27 +421,46 @@ class Kyselyketju extends PluginBase
             $sWarningQuestions = '<br/><span style="color: red;">Monivalintakysymyksiä ei löytynyt!</span>';
         }
 
-        $hakemusKyselyt = PluginSetting::model()->findAll(array('condition' => "`key`='bUse' AND `value`='\"1\"'"));
 
-        $hakemusKyselytId = array();
-        foreach ($hakemusKyselyt as $survey) {
-            $hakemusKyselytId[] = $survey->model_id;
+        $aApplicationSurveys = PluginSetting::model()->findAll(array('condition' => "`key`='bUse' AND `value`='\"1\"'"));
+
+        $aApplicationSurveysId = array();
+        foreach ($aApplicationSurveys as $survey) {
+            $aApplicationSurveysId[] = $survey->model_id;
         }
 
-        if (count($hakemusKyselytId) > 1) {
-            $sWarning = '<br/><span style="color: red;">Hakemuskysely voi olla vain yksi!</span>';
+        $sWarning = '';
+        $sWarningQuestions = '';
+
+        //Message about how many application surveys there are
+        if (count($aApplicationSurveysId) > 1) {
+            $sWarning = '<br/><span style="color: blue;">Hakemuskyselyjä yhteensä: ' . count($aApplicationSurveysId) . '</span><br/>';
+
+            $surveyNames = "";
+
+            foreach ($aApplicationSurveysId as $surveyId) {
+                $survey = Survey::model()->findByPk($surveyId);
+                $ownBaseLang = $survey->attributes['language'];
+                $survey_title = SurveyLanguageSetting::model()->findByAttributes(array('surveyls_survey_id' => $surveyId, 'surveyls_language' => $ownBaseLang))->surveyls_title;
+                $surveyNames .= $survey_title . ", ";
+            }
+
+            // Remove trailing comma and space from surveyNames
+            $surveyNames = rtrim($surveyNames, ", ");
+
+            $sWarning .= "<span style='color: blue;'>" . $surveyNames . "</span>";
         }
 
         $aSettings = array(
             'bUse' => array(
                 'type' => 'select',
-                'label' => 'Onko tämä Hakemus -kysely?',
+                'label' => 'Onko tämä Hakemuskysely?',
                 'options' => array(
                     0 => gT("No"),
                     1 => gT("Yes")
                 ),
                 'default' => 0,
-                'help' => 'Jos tämä on Hakemus kysely, valitse "Kyllä"' . $sWarning,
+                'help' => 'Jos tämä on Hakemuskysely, valitse "Kyllä"' . $sWarning,
                 'current' => $this->get('bUse', 'Survey', $oEvent->get('survey')),
             ),
         );
@@ -264,7 +468,7 @@ class Kyselyketju extends PluginBase
         if ($this->get('bUse', 'Survey', $oEvent->get('survey')) == 1) {
             $aSettings['infoUse'] = array(
                 'type' => 'info',
-                'content' => '<h3><b>Miten saa kyselyketjun toimimaan parhaiten?</b></h3> <br/>1) Varmista, että alhaalla liitetyissä linkeissä ei ole liiallisia välilyöntejä alussa. Linkissä voi olla tai voi puuttuakin se "?lang=xx" osa, tärkeintä on että ei ole mitään muita parameja<br/>2) Varmista, että on olemassa vain yksi Hakemuskysely. Tällä hetkellä plugin ei hyväksy enempää kuin yhden Hakemuskyselyn. Jos niitä on enemmän niin plugin ei toimi ja tulee joko virhe Hakemuskyselyn jälkeen tai täällä asetuksissa punaisena tekstinä varoitus<br/>3) Jos kyselyketjun aikana tulevassa kyselyssä ei ole samaa aloituskieltä, kysely käynnistyy peruskielellään',
+                'content' => '<h3><b>Miten saa kyselyketjun toimimaan parhaiten?</b></h3> <br/><ul><li>Varmista, että alhaalla liitetyissä linkeissä ei ole liiallisia välilyöntejä alussa. Linkissä voi olla tai voi puuttuakin se "?lang=xx" osa, tärkeintä on että ei ole mitään muita parameja</li><li>Jos kyselyketjun aikana tulevassa kyselyssä ei ole samaa aloituskieltä, kysely käynnistyy peruskielellään</li></ul>',
             );
             $aSettings['choiceQuestion'] = array(
                 'type' => 'select',
@@ -361,27 +565,27 @@ class Kyselyketju extends PluginBase
         return false;
     }
 
-    private function nextSurvey(array $surveyArray, $name, $surname, $lang, $token, $hakemuskys)
+    private function nextSurvey(array $surveyArray, $name, $surname, $lang, $token)
     {
-        $oEvent = $this->getEvent();
+        $oEvent = $this->event;
         $sSurveyId = $oEvent->get('surveyId');
         $sNextSurvey = '';
 
-        if ($this->isApplicationSurvey($sSurveyId)) { // Jos tämänhetkinen kysely on se hakemus kysely
-            $nextSurveyID = substr($surveyArray[array_keys($surveyArray)[0]]['link'], -6); // seuraavan kyselyn id
+        if ($this->isApplicationSurvey($sSurveyId)) { //If current survey is Application survey
+            $nextSurveyID = substr($surveyArray[array_keys($surveyArray)[0]]['link'], -6); //Next survey's ID
 
             $oSurvey = Survey::model()->findByPk($nextSurveyID);
             if (!$oSurvey) {
-                throw new CHttpException(404, gT("This survey does not exist"));
+                throw new CHttpException(404, gT("This survey does not exist. The survey chain requires updating"));
             }
 
             $nextSurveyLanguages = $oSurvey->getAllLanguages();
 
             if (!in_array($lang, $nextSurveyLanguages)) {
-                $lang = $nextSurveyLanguages[0]; // laittaa kyselyn kieleksi base language jos hakemuksessa käytettyä kieltä ei ole seuraavassa kyselyssä
+                $lang = $nextSurveyLanguages[0]; //Sets survey language to be the base language if the language used in the Application survey is not found it the next one
             }
 
-            //perustiedot
+            //Basic information for the participant
             $aParticipantData = array(
                 'firstname' => "{$name}",
                 'lastname' => "{$surname}",
@@ -389,17 +593,17 @@ class Kyselyketju extends PluginBase
             );
 
             // if ($this->get('tokensOption', 'Survey', $hakemuskys) == 1) {
-            //     //random tokenin luonti
+            //     //Generating random token
             //     $oGeneratedToken = Token::create($nextSurveyID);
             //     $oGeneratedToken->generateToken();
-            //     $aParticipantData['token'] = $oGeneratedToken->token; // lisätään osallistujan tietoihin
-            // } else { //jos halutaan vain yksi token koko kyselyketjussa
+            //     $aParticipantData['token'] = $oGeneratedToken->token; //Adding to participants information
+            // } else { //If only one token is used throughout the whole survey chain
             $aParticipantData['token'] = $token;
             //}
-            //luodun tokenin id
+            //Generated token's ID
             $tokenId = TokenDynamic::model($nextSurveyID)->insertParticipant($aParticipantData);
 
-            // seuraavan kyselyn linkki joka sisältää parametreina myös luotun tokenin
+            //Next survey's link which includes also generated token as a parameter
             $sNextSurvey = $surveyArray[array_keys($surveyArray)[0]]['link'] . "?lang=" . $lang . "&newtest=Y&token=" . $aParticipantData['token'];
 
             header("Access-Control-Allow-Origin: *");
@@ -426,10 +630,10 @@ class Kyselyketju extends PluginBase
             if ($currentKey !== null) {
                 $keys = array_keys($surveyArray);
                 $currentKeyIndex = array_search($currentKey, $keys);
-                if ($currentKeyIndex + 1 < count($keys)) { // jos on olemassa seuraava linkki/kysely
-                    $nextKey = $keys[$currentKeyIndex + 1]; // seuraava key arrayssa
+                if ($currentKeyIndex + 1 < count($keys)) { //If the next link/survey exists
+                    $nextKey = $keys[$currentKeyIndex + 1]; //Next key in the array
 
-                    $nextSurveyID = substr($surveyArray[$nextKey]['link'], -6); // seuraavan kyselyn id
+                    $nextSurveyID = substr($surveyArray[$nextKey]['link'], -6); //ID of the next survey
 
                     $oSurvey = Survey::model()->findByPk($nextSurveyID);
 
@@ -440,12 +644,12 @@ class Kyselyketju extends PluginBase
                     $nextSurveyLanguages = $oSurvey->getAllLanguages();
 
                     if (!in_array($lang, $nextSurveyLanguages)) {
-                        $lang = $nextSurveyLanguages[0]; // laittaa kyselyn kieleksi base language jos hakemuksessa käytettyä kieltä ei ole seuraavassa kyselyssä
+                        $lang = $nextSurveyLanguages[0]; //Sets survey language to be the base language if the language used in the Application survey is not found it the next one
                     }
 
-                    $sNextSurvey = $surveyArray[$nextKey]['link'] . "?lang=" . $lang . "&newtest=Y"; // valmis linkki seuraavaan kyselyyn (vielä ilman tokenia)
+                    $sNextSurvey = $surveyArray[$nextKey]['link'] . "?lang=" . $lang . "&newtest=Y"; //Ready link to the next survey (yet without a token)
 
-                    //perustiedot osallistujalle
+                    //Basic information for the participant
                     $aParticipantData = array(
                         'firstname' => "{$name}",
                         'lastname' => "{$surname}",
@@ -453,15 +657,15 @@ class Kyselyketju extends PluginBase
                     );
 
                     // if ($this->get('tokensOption', 'Survey', $hakemuskys) == 1) {
-                    //     //random tokenin luonti
+                    //     //Generating random token
                     //     $oGeneratedToken = Token::create($nextSurveyID);
                     //     $oGeneratedToken->generateToken();
-                    //     $aParticipantData['token'] = $oGeneratedToken->token; // lisätään osallistujan tietoihin
-                    // } else { //jos halutaan vain yksi token koko kyselyketjussa
+                    //     $aParticipantData['token'] = $oGeneratedToken->token; //Adding to participants information
+                    // } else { //If only one token is used throughout the whole survey chain
                     $aParticipantData['token'] = $token;
                     //}
 
-                    //luodun tokenin id
+                    //Generated token's ID
                     $tokenId = TokenDynamic::model($nextSurveyID)->insertParticipant($aParticipantData);
 
                     $sNextSurvey = $sNextSurvey . "&token=" . $aParticipantData['token'];
@@ -474,7 +678,7 @@ class Kyselyketju extends PluginBase
                     }
                     $b = Template::getLastInstance();
                     Yii::app()->twigRenderer->renderHtmlPage($sNextSurvey, $b);
-                } /*else {
+                } /*else { //This is export at the end of the survey chain FOR THE PARTICIPANT. Left here if it is going to be needed in the future ;)
                     //EXPORT EXCEL
                     $contentToAdd = '';
 
@@ -496,12 +700,12 @@ class Kyselyketju extends PluginBase
                     $writer = new XLSXWriter();
                     $writer->setAuthor('LS');
 
-                    //saadaan kysymykset ja vastaukset teksteinä koodien sijaan
+                    //Getting questions and responses as texts instead of codes
                     $testResponses = SurveyDynamic::model($hakemuskys)->findByAttributes(array('token' => $token));
 
                     $printAnswers = getFullResponseTable($hakemuskys, $testResponses['id'], $lang);
 
-                    //poistetaan HTML tagit
+                    //Deleting HTML tags
                     foreach ($printAnswers as &$subArray) {
                         $subArray = array_map('strip_tags', $subArray);
                     }
@@ -537,13 +741,11 @@ class Kyselyketju extends PluginBase
 
                         $printAnswersForEach = getFullResponseTable($testsurvey_id, $matchingResponse->attributes['id'], $lang);
 
-                        //DEBUG $contentToAdd .= '<pre>$printAnswersForEach <h3>(before the foreach loop)</h3>:<br/>' . print_r($printAnswersForEach, true) . '</pre>';
-                        //poistetaan HTML tagit
+                        //Deleting HTML tags
                         foreach ($printAnswersForEach as &$subArray) {
                             $subArray = array_map('strip_tags', $subArray);
                         }
-                        //DEBUG $contentToAdd .= '<pre>$printAnswersForEach <h3>(after the foreach loop)</h3>:<br/>' . print_r($printAnswersForEach, true) . '</pre>';
-
+                        
                         $newApplicationResponseForEach = array();
                         foreach ($printAnswersForEach as $key => $value) {
                             if ($value[1]) {
@@ -589,27 +791,32 @@ class Kyselyketju extends PluginBase
 
     public function afterSurveyComplete()
     {
-        $oEvent = $this->getEvent();
+        $oEvent = $this->event;
 
         $sCurrentSid = $oEvent->get('surveyId');
         $sResponseId = $oEvent->get('responseId');
 
         $oCurrentResponse = $this->pluginManager->getAPI()->getResponse($sCurrentSid, $sResponseId);
 
-        $hakemusKyselyt = PluginSetting::model()->findAll(array('condition' => "`key`='bUse' AND `value`='\"1\"'"));
+        $applicationSurveys = PluginSetting::model()->findAll(array('condition' => "`key`='bUse' AND `value`='\"1\"'"));
 
-        $hakemusKyselytId = array();
-        foreach ($hakemusKyselyt as $survey) {
-            $hakemusKyselytId[] = $survey->model_id;
+        $applicationSurveysId = array();
+        foreach ($applicationSurveys as $survey) {
+            $applicationSurveysId[] = $survey->model_id;
         }
 
-        if (!$hakemusKyselytId) {
+        $parApplSurvey = $this->findParentApplication();
+
+        if (!$applicationSurveysId || $parApplSurvey == null) {
             return;
-        } elseif (count($hakemusKyselytId) > 1) {
-            $oEvent->getContent($this)->addContent("<p>Hakemuskysely voi olla vain yksi!</p>");
         } else {
-            $sSurveyId = $hakemusKyselytId[0];
-            // Tämä muuttuja hakee tietokannasta tiedot viimeisen hakemus-kyselyn responsistä
+            if ($this->isApplicationSurvey($sCurrentSid)) {
+                $sSurveyId = $sCurrentSid;
+            } else {
+                $sSurveyId = $parApplSurvey;
+            }
+
+            //This variable gets the info about the matching response with token from the DB
             $latest_response = Response::model($sSurveyId)->findAllByAttributes(array('token' => $oCurrentResponse['token']));
             $latest_response_id = $latest_response[0]->id;
 
@@ -622,7 +829,7 @@ class Kyselyketju extends PluginBase
                 }
             }
 
-            // Otetaan asetuksissa aikaisemmin valittu kysymys
+            //Taking the question assigned in the settings
             $chosen_question = $this->get('choiceQuestion', 'Survey', $sSurveyId, null);
             $chosen_question_id = $aQuestions[$chosen_question]['qid'];
             $chosen_question_title = $aQuestions[$chosen_question]['title'];
@@ -650,7 +857,7 @@ class Kyselyketju extends PluginBase
                 }
             }
 
-            /* [ESIMERKKI] $aAnswerOptions TULOSTAA:
+            /* [EXAMPLE] $aAnswerOptions OUTPUTS:
             Array
             
             [SQ003] => three
@@ -665,7 +872,7 @@ class Kyselyketju extends PluginBase
                 $links[$chosen_question_title . "_" . $key] = $label;
             }
 
-            /* [ESIMERKKI] $links TULOSTAA:
+            /* [EXAMPLE] $links OUTPUTS:
             Array
             (
             [Q00_SQ003] => three
@@ -689,7 +896,7 @@ class Kyselyketju extends PluginBase
                 }
             }
 
-            /* [ESIMERKKI] $settingslinks TULOSTAA:
+            /* [EXAMPLE] $settingslinks OUTPUTS:
             Array
             (
             [three] => http://localhost/limesurvey/index.php/435938
@@ -705,7 +912,7 @@ class Kyselyketju extends PluginBase
                 $readylinks[$key] = $settingslinks[$value];
             }
 
-            /* [ESIMERKKI] $readylinks TULOSTAA:
+            /* [EXAMPLE] $readylinks OUTPUTS:
             Array
             (
             [Q00_SQ003] => http://localhost/limesurvey/index.php/435938
@@ -715,7 +922,7 @@ class Kyselyketju extends PluginBase
             )
             */
 
-            // tämän kautta tehdään basic array joka sisältää tiedot vastauksista //
+            ////Creating a basic array which contains of response info
             $response = $this->pluginManager->getAPI()->getResponse($sSurveyId, $latest_response_id);
 
             $lang = $response['startlanguage'];
@@ -723,7 +930,7 @@ class Kyselyketju extends PluginBase
             $responseVastaukset = array_filter($response, function ($key) use ($chosen_question_title) {
                 return strpos($key, $chosen_question_title) === 0;
             }, ARRAY_FILTER_USE_KEY);
-            /* [ESIMERKKI] $responseVastaukset TULOSTAA:
+            /* [EXAMPLE] $responseVastaukset OUTPUTS:
             Array
             (
             [Q00_SQ001] => 
@@ -735,7 +942,7 @@ class Kyselyketju extends PluginBase
 
             $finalArray = array();
 
-            // Lisätään linkit
+            //Adding links
             foreach ($responseVastaukset as $key => $value) {
                 $finalArray[$key] = array(
                     'value' => $value,
@@ -743,12 +950,12 @@ class Kyselyketju extends PluginBase
                 );
             }
 
-            // Otetaan vain checked vastaukset
+            //Taking only checked response options
             $finalArray = array_filter($finalArray, function ($element) {
                 return $element['value'] === 'Y';
             });
 
-            /* [ESIMERKKI] $finalArray TULOSTAA:
+            /* [EXAMPLE] $finalArray OUTPUTS:
             Array
             (
             [Q00_SQ001] => Array
@@ -764,34 +971,27 @@ class Kyselyketju extends PluginBase
             )
             */
 
-            //vanha tapa saada nimitiedot
-            /*$responseNimi = array_filter($response, function ($key) {
-                return strpos($key, 'name') !== false;
-            }, ARRAY_FILTER_USE_KEY);
-
-            $name = $responseNimi[array_keys($responseNimi)[0]];
-            $surname = $responseNimi[array_keys($responseNimi)[1]];*/
-
             $token = $response['token'];
 
-            //nimitiedot
+            //Name information
             $tokenId = TokenDynamic::model($sSurveyId)->findByAttributes(array('token' => $token));
             $name = $tokenId->attributes['firstname'];
             $surname = $tokenId->attributes['lastname'];
 
-            $contentToAdd = '';
+            $contentToAdd = ''; //Used for debugging
 
             if ($oCurrentResponse['token'] !== $response['token']) {
                 return;
             }
 
             if ($this->isApplicationSurvey($sCurrentSid) || $this->checkSurveyLink($finalArray)) {
-                $this->nextSurvey($finalArray, $name, $surname, $lang, $token, $sSurveyId);
+                $this->nextSurvey($finalArray, $name, $surname, $lang, $token);
             }
 
-            //$contentToAdd = '<pre>' . $testSearch . '</pre>';
+            //Debugging purposes 
 
-            $oEvent->getContent($this)->addContent($contentToAdd);
+            //$contentToAdd = '<pre>' . $testSearch . '</pre>';
+            //$oEvent->getContent($this)->addContent($contentToAdd);
         }
     }
 }
