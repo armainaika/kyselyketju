@@ -1,6 +1,7 @@
 <?php
 
 use \LimeSurvey\Menu\MenuItem;
+use \ls\menu\Menu;
 
 $ls_xlsxwriter_path = realpath(dirname(__FILE__) . '/../../application/third_party/xlsx_writer/xlsxwriter.class.php');
 if (file_exists($ls_xlsxwriter_path)) {
@@ -33,8 +34,9 @@ class Kyselyketju extends PluginBase
         $oEvent = $this->event;
         $surveyId = $oEvent->get('surveyId');
 
+
         if ($this->get('bUse', 'Survey', $surveyId) == 1) {
-            $href = Yii::app()->createUrl(
+            $exportHref = Yii::app()->createUrl(
                 'admin/pluginhelper',
                 array(
                     'sa' => 'sidebody',
@@ -44,17 +46,283 @@ class Kyselyketju extends PluginBase
                 )
             );
 
-            $menuItem = new MenuItem(
+            $fillQuestionsHref = Yii::app()->createUrl(
+                'admin/pluginhelper',
                 array(
-                    'label' => gT("Export surveychain"),
-                    'iconClass' => 'fa fa-table',
-                    'href' => $href
+                    'sa' => 'sidebody',
+                    'plugin' => 'Kyselyketju',
+                    'method' => 'FillQuestions',
+                    'surveyId' => $surveyId,
                 )
             );
 
-            $oEvent->append('menuItems', array($menuItem));
+            $exportMenuItem = new MenuItem(
+                array(
+                    'label' => "Vie kyselyketju",
+                    'iconClass' => 'fa fa-table',
+                    'href' => $exportHref,
+                )
+            );
+
+            $fillQuestionsMenuItem = new MenuItem(
+                array(
+                    'label' => "Valitse testit vastaajien puolesta",
+                    'iconClass' => 'fa fa-pencil',
+                    'href' => $fillQuestionsHref,
+                )
+            );
+
+            $oEvent->append('menuItems', array($exportMenuItem, $fillQuestionsMenuItem));
         }
     }
+
+    public function FillQuestions($surveyId)
+    {
+        //Filling responses for participants beforehead
+        $oSurvey = Survey::model()->findByPk($surveyId);
+        if (!$oSurvey) {
+            throw new CHttpException(404, gT("This survey does not seem to exist."));
+        }
+        $baseLang = $oSurvey->language;
+
+        $oaQuestions = Question::model()->findAllByAttributes(array('sid' => $surveyId, 'type' => 'M'));
+        if (!$oaQuestions) {
+            throw new CHttpException(404, gT("Questions type 'M' not found for the given survey."));
+        }
+
+        $aQuestions = array();
+        foreach ($oaQuestions as $question) {
+            if ($question->type == 'M') {
+                $aQuestions[] = array('title' => $question->title, 'qid' => $question->qid);
+            }
+        }
+
+        $tokenTableExists = $oSurvey->hasTokensTable;
+
+        if ($tokenTableExists) {
+
+            //chosen question from settings
+            $choiceQuestion = $this->get('choiceQuestion', 'Survey', $surveyId, null);
+            $iChosenQId = $aQuestions[$choiceQuestion]['qid'];
+            $oQuestion = Question::model()->findAll('qid = :qid', array(':qid' => $iChosenQId));
+            $iGid = $oQuestion['gid'];
+
+
+            //create attributes if there are none
+            $oaSubQuestions = Question::model()->findAllByAttributes(array('parent_qid' => $iChosenQId, 'language' => $baseLang));
+
+            $aSubQsInfo = array();
+            foreach ($oaSubQuestions as $question) {
+                $aSubQsInfo[] = array('text' => $question->question, 'qid' => $question->qid, 'title' => $question->title);
+            }
+
+            $attributes2add = count($aSubQsInfo);
+            $tokenattributefieldnames = getAttributeFieldNames($surveyId);
+
+            $languages = array_merge((array)$oSurvey->language, $oSurvey->additionalLanguages);
+            $fieldcontents = [];
+            $captions = [];
+
+            $iSubQsAmount = count($aSubQsInfo);
+            $countersgqa = 0;
+            $counter = 0;
+
+
+
+            if (!$tokenattributefieldnames) { //if there are no token attributes whatsoever (must modify in the future somehow)
+                $i = 1;
+
+                //adding attributes based on the amount of subquestions of the chosen question
+                for ($b = 0; $b < $attributes2add; $b++) {
+                    while (in_array('attribute_' . $i, $tokenattributefieldnames) !== false) {
+                        $i++;
+                    }
+                    $tokenattributefieldnames[] = 'attribute_' . $i;
+                    Yii::app()->db->createCommand(Yii::app()->db->getSchema()->addColumn("{{tokens_" . intval($surveyId) . "}}", 'attribute_' . $i, 'text'))->execute();
+                }
+
+                Yii::app()->db->schema->getTable($oSurvey->tokensTableName, true); //refresh schema cache just in case the table existed in the past
+                LimeExpressionManager::SetDirtyFlag(); // so that knows that survey participants tables have changed
+
+
+                //adding descriptions to the attributes corresponding to the subqs
+                foreach ($tokenattributefieldnames as $fieldname) {
+
+                    $fieldcontents[$fieldname] = [
+                        'description' => isset($aSubQsInfo[$counter]) ? $aSubQsInfo[$counter]['text'] : '',
+                        'mandatory'     => 'N',
+                    ];
+                    $aSubQsInfo[$counter]['attr'] = $fieldname;
+                    foreach ($languages as $language) {
+                        $captions[$language][$fieldname] = isset($aSubQsInfo[$counter]) ? $aSubQsInfo[$counter]['text'] : '';
+                    }
+                    $counter++;
+                    if ($counter >= $iSubQsAmount) {
+                        break;
+                    }
+                }
+                //saving
+                Survey::model()->updateByPk($surveyId, ['attributedescriptions' => json_encode($fieldcontents)]);
+
+                foreach ($languages as $language) {
+                    $ls = SurveyLanguageSetting::model()->findByAttributes(['surveyls_survey_id' => $surveyId, 'surveyls_language' => $language]);
+                    $ls->surveyls_attributecaptions = !empty($captions[$language]) ? json_encode($captions[$language]) : '';
+                    $ls->save();
+                }
+            }
+
+            foreach ($tokenattributefieldnames as $fieldname) {
+                $sgqaCode = "{$surveyId}X{$iGid}X{$iChosenQId}{$aSubQsInfo[$countersgqa]['title']}";
+
+                $aSubQsInfo[$countersgqa]['attr'] = $fieldname;
+                $aSubQsInfo[$countersgqa]['sgqa'] = $sgqaCode;
+                $countersgqa++;
+                if (
+                    $countersgqa >= $iSubQsAmount
+                ) {
+                    break;
+                }
+            }
+
+            //adding script to the chosen question text (every language) to make ready response work
+            $questionTexts = array();
+            foreach ($oQuestion as $question) {
+                $questionTexts[] = array('language' => $question->language, 'text' => $question->question);
+            }
+
+            foreach ($questionTexts as $questionText) {
+                $text = $questionText['text'];
+                $language = $questionText['language'];
+                if (strpos($text, '<script>') == false) { //if there isnt already script in the question text
+                    $modifiedQuestionText = "<script>\n";
+                    $modifiedQuestionText .= "  $(document).ready(function() {\n";
+                    for ($counter = 0; $counter < count($aSubQsInfo); $counter++) { //for each subquestion adding the corresponding script
+                        $attribute = strtoupper($aSubQsInfo[$counter]['attr']);
+                        $sgqa = $aSubQsInfo[$counter]['sgqa'];
+
+                        $modifiedQuestionText .= "    if ('{TOKEN:{$attribute}}' === '1') {\n";
+                        $modifiedQuestionText .= "        $('#answer{$sgqa}').prop('checked', true);\n";
+                        $modifiedQuestionText .= "    }\n";
+                    }
+                    $modifiedQuestionText .= "  });\n";
+                    $modifiedQuestionText .= "</script>\n";
+
+                    $oLangQ = Question::model()->find('qid = :qid AND language = :lang', array(':qid' => $iChosenQId, ':lang' => $language));
+                    $oLangQ->question .= $modifiedQuestionText; //assigning the modified text to the existing question text
+                    if (!$oLangQ->save()) {
+                        Yii::log("Error when saving attribute for survey $surveyId", 'warning', 'application.plugins.updateTokenByResponse');
+                        Yii::log(CVarDumper::dumpAsString($oLangQ->getErrors()), 'warning', 'application.plugins.updateTokenByResponse');
+                        tracevar($oLangQ->getErrors());
+                    }
+                }
+            }
+        } else {
+            throw new CHttpException(404, gT("Token table does not exist. Initiate a token table first"));
+        }
+
+        if (App()->getRequest()->getPost('save' . get_class($this))) {
+            $checkedAttributes = json_decode(App()->getRequest()->getPost('checkedAttributes'), true); //already checked attributes that equal 1
+            $newAttributes = json_decode(App()->getRequest()->getPost('hiddenFieldsContainer'), true); //new checked attributes from post
+
+            $updatedArray = $checkedAttributes; //adding new checked attributes below
+
+            foreach ($newAttributes as $tokenKey => $attributes) {
+                if (isset($updatedArray[$tokenKey])) { //if any attributes under the token in question have been checked already before
+                    foreach ($attributes as $attribute) {
+                        if (strpos($attribute, ' del') !== false) { //the ones that are being unchecked in the views are marked with " del"
+                            $attributeName = str_replace(' del', '', $attribute);
+                            $updatedArray[$tokenKey] = array_filter($updatedArray[$tokenKey], function ($value) use ($attributeName) {
+                                return (strpos($value, $attributeName) === false);
+                            });
+                        } else {
+                            $updatedArray[$tokenKey] = array_merge($updatedArray[$tokenKey], [$attribute]);
+                        }
+                    }
+                } else {
+                    $updatedArray[$tokenKey] = $attributes;
+                }
+            }
+
+            //saving the new checked attributes to the db below
+
+            //iterate over each key in $updatedArray
+            foreach ($updatedArray as $currentToken => $attributes) {
+                //get the attributes for the current token from the survey
+                $curTokenInfo = Token::model($surveyId)->find("token=:token", array(":token" => $currentToken));
+                $curTokenSettings = $curTokenInfo->attributes;
+                //check for empty attributes in $curTokenInfo and update them if necessary
+                foreach ($attributes as $attribute) {
+                    //extract the attribute number from the value (e.g., "attribute_1")
+                    preg_match('/attribute_(\d+)/', $attribute, $matches);
+                    $attributeNumber = $matches[1];
+
+                    //check if the attribute is empty in $curTokenInfo and update it if necessary
+                    $attributeKey = 'attribute_' . $attributeNumber;
+                    if (empty($curTokenSettings[$attributeKey])) {
+                        $curTokenInfo->$attributeKey = "1";
+                    }
+                }
+
+                //check for missing attributes in $updatedArray and set them to ""
+                foreach ($curTokenSettings as $key => $value) {
+                    if (strpos($key, 'attribute_') === 0 && $value === "1") {
+                        $attributeNumber = substr($key, strlen('attribute_'));
+                        $attributeToCheck = 'attribute_' . $attributeNumber;
+                        $found = false;
+
+                        foreach ($attributes as $attribute) {
+                            if (
+                                strpos($attribute, $attributeToCheck) === 0
+                            ) {
+                                $found = true;
+                                break;
+                            }
+                        }
+
+                        if (!$found) {
+                            $curTokenInfo->$key = ""; //set the attribute to "" only if it is not found in $attributes
+                        }
+                    }
+                }
+
+
+                if (!$curTokenInfo->save()) {
+                    Yii::log("Error when saving attribute for survey $surveyId", 'warning', 'application.plugins.updateTokenByResponse');
+                    Yii::log(CVarDumper::dumpAsString($curTokenInfo->getErrors()), 'warning', 'application.plugins.updateTokenByResponse');
+                    tracevar($curTokenInfo->getErrors());
+                }
+            }
+
+            if ('redirect' == App()->getRequest()->getPost('save' . get_class($this))) {
+
+                if (floatval(App()->getConfig('versionnumber')) < 4) {
+                    App()->getController()->redirect(
+                        App()->getController()->createUrl(
+                            'admin/survey',
+                            ['sa' => 'view', 'surveyid' => $surveyId]
+                        )
+                    );
+                }
+                App()->getController()->redirect(
+                    App()->getController()->createUrl(
+                        'surveyAdministration/view',
+                        ['surveyid' => $surveyId]
+                    )
+                );
+            }
+        }
+
+
+
+        //debugging
+        // $questionText = htmlspecialchars($oQuestion->question);
+        // echo "<pre>" . print_r($questionText, true) . "</pre>";
+
+        $pluginClass = get_class($this);
+        return $this->renderPartial('fillingq', array('surveyId' => $surveyId, 'pluginClass' => $pluginClass), true);
+    }
+
+
 
     public function SCExport($surveyId)
     {
@@ -83,12 +351,12 @@ class Kyselyketju extends PluginBase
         }
 
         $chosen_question = $this->get('choiceQuestion', 'Survey', $surveyId, null);
-        $chosen_question_id = $aQuestions[$chosen_question]['qid'];
+        $iChosenQId = $aQuestions[$chosen_question]['qid'];
 
         if (intval(App()->getConfig('versionnumber')) < 4) {
-            $oaSubquestions = Question::model()->findAllByAttributes(array('sid' => $surveyId, 'parent_qid' => $chosen_question_id, 'language' => $baseLang));
+            $oaSubquestions = Question::model()->findAllByAttributes(array('sid' => $surveyId, 'parent_qid' => $iChosenQId, 'language' => $baseLang));
         } else {
-            $oaSubquestions = Question::model()->with(array('questionl10ns' => array('condition' => 'language = :language', 'params' => array(':language' => $baseLang))))->findAllByAttributes(array('parent_qid' => $chosen_question_id), array('index' => 'qid'));
+            $oaSubquestions = Question::model()->with(array('questionl10ns' => array('condition' => 'language = :language', 'params' => array(':language' => $baseLang))))->findAllByAttributes(array('parent_qid' => $iChosenQId), array('index' => 'qid'));
         }
 
         $aAnswerOptions = array();
@@ -495,12 +763,12 @@ class Kyselyketju extends PluginBase
             // );
 
             $chosen_question = $this->get('choiceQuestion', 'Survey', $sSurveyId, null);
-            $chosen_question_id = $aQuestions[$chosen_question]['qid'];
+            $iChosenQId = $aQuestions[$chosen_question]['qid'];
 
             if (intval(App()->getConfig('versionnumber')) < 4) {
-                $oaSubquestions = Question::model()->findAllByAttributes(array('sid' => $sSurveyId, 'parent_qid' => $chosen_question_id, 'language' => $baseLang));
+                $oaSubquestions = Question::model()->findAllByAttributes(array('sid' => $sSurveyId, 'parent_qid' => $iChosenQId, 'language' => $baseLang));
             } else {
-                $oaSubquestions = Question::model()->with(array('questionl10ns' => array('condition' => 'language = :language', 'params' => array(':language' => $baseLang))))->findAllByAttributes(array('parent_qid' => $chosen_question_id), array('index' => 'qid'));
+                $oaSubquestions = Question::model()->with(array('questionl10ns' => array('condition' => 'language = :language', 'params' => array(':language' => $baseLang))))->findAllByAttributes(array('parent_qid' => $iChosenQId), array('index' => 'qid'));
             }
 
             $aAnswerOptions = array();
@@ -831,16 +1099,16 @@ class Kyselyketju extends PluginBase
 
             //Taking the question assigned in the settings
             $chosen_question = $this->get('choiceQuestion', 'Survey', $sSurveyId, null);
-            $chosen_question_id = $aQuestions[$chosen_question]['qid'];
+            $iChosenQId = $aQuestions[$chosen_question]['qid'];
             $chosen_question_title = $aQuestions[$chosen_question]['title'];
 
             $oaSurvey = Survey::model()->findByPk($sSurveyId);
             $baseLang = $oaSurvey->language;
 
             if (intval(App()->getConfig('versionnumber')) < 4) {
-                $oaSubquestions = Question::model()->findAllByAttributes(array('sid' => $sSurveyId, 'parent_qid' => $chosen_question_id, 'language' => $baseLang));
+                $oaSubquestions = Question::model()->findAllByAttributes(array('sid' => $sSurveyId, 'parent_qid' => $iChosenQId, 'language' => $baseLang));
             } else {
-                $oaSubquestions = Question::model()->with(array('questionl10ns' => array('condition' => 'language = :language', 'params' => array(':language' => $baseLang))))->findAllByAttributes(array('parent_qid' => $chosen_question_id), array('index' => 'qid'));
+                $oaSubquestions = Question::model()->with(array('questionl10ns' => array('condition' => 'language = :language', 'params' => array(':language' => $baseLang))))->findAllByAttributes(array('parent_qid' => $iChosenQId), array('index' => 'qid'));
             }
 
             $aAnswerOptions = array();
